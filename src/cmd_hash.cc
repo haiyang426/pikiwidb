@@ -7,7 +7,6 @@
 #include "cmd_hash.h"
 
 #include <config.h>
-#include <iostream>
 
 #include "pstd/pstd_string.h"
 #include "store.h"
