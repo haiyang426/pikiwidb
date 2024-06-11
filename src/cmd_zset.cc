@@ -728,7 +728,7 @@ void ZScoreCmd::DoCmd(PClient* client) {
   if (s.ok() || s.IsNotFound()) {
     char buf[32];
     int64_t len = pstd::D2string(buf, sizeof(buf), score);
-    client->AppendStringLenUint64(len);
+    client->AppendStringLen(len);
     client->AppendContent(buf);
   } else {
     client->SetRes(CmdRes::kErrOther, s.ToString());
