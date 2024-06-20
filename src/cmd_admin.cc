@@ -6,10 +6,17 @@
  */
 
 #include "cmd_admin.h"
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
 #include "db.h"
+
 
 #include "braft/raft.h"
 #include "rocksdb/version.h"
+#include "pstd_string.h"
 
 #include "pikiwidb.h"
 #include "praft/praft.h"
@@ -259,4 +266,212 @@ void CmdDebugSegfault::DoCmd(PClient* client) {
   *ptr = 0;
 }
 
+SortCmd::SortCmd(const std::string& name, int16_t arity)
+    : BaseCmd(name, arity, kCmdFlagsAdmin | kCmdFlagsWrite, kAclCategoryAdmin) {}
+
+bool SortCmd::DoInitial(PClient* client) {
+  client->SetKey(client->argv_[1]);
+  return true;
+}
+
+void SortCmd::DoCmd(PClient* client) {
+  // const auto& argv = client->argv_;
+  int desc = 0;
+  int alpha = 0;
+
+  size_t offset = 0;
+  size_t count = -1;
+
+  int dontsort = 0;
+  int vectorlen;
+
+  int getop = 0;
+
+  std::string store_key;
+  std::string sortby;
+
+  std::vector<std::string> get_patterns;
+  size_t argc = client->argv_.size();
+  DEBUG("argc: {}", argc);
+  for (int i = 2; i < argc; ++i) {
+    // const auto& arg = pstd::StringToLower(argv[i]);
+    int leftargs = argc - i - 1;
+    if (strcasecmp(client->argv_[i].data(), "asc") == 0) {
+      desc = 0;
+    } else if (strcasecmp(client->argv_[i].data(), "desc") == 0) {
+      desc = 1;
+    } else if (strcasecmp(client->argv_[i].data(), "alpha") == 0) {
+      alpha = 1;
+    } else if (strcasecmp(client->argv_[i].data(), "limit") == 0 && leftargs >= 2) {
+      if (pstd::String2int(client->argv_[i + 1], &offset) == 0 || pstd::String2int(client->argv_[i + 2], &count) == 0) {
+        client->SetRes(CmdRes::kSyntaxErr);
+        return;
+      }
+      i += 2;
+    } else if (strcasecmp(client->argv_[i].data(), "store") == 0 && leftargs >= 1) {
+      store_key = client->argv_[i + 1];
+      i++;
+    } else if (strcasecmp(client->argv_[i].data(), "by") == 0 && leftargs >= 1) {
+      sortby = client->argv_[i + 1];
+      if (sortby.find('*') == std::string::npos) {
+        dontsort = 1;
+      }
+      i++;
+    } else if (strcasecmp(client->argv_[i].data(), "get") == 0 && leftargs >= 1) {
+      get_patterns.push_back(client->argv_[i + 1]);
+      getop++;
+      i++;
+    } else {
+      client->SetRes(CmdRes::kSyntaxErr);
+      return;
+    }
+  }
+  
+  DEBUG("finish parser ");
+
+  std::vector<std::string> types(1);
+  rocksdb::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->GetType(client->Key(), true, types);
+
+  if (!s.ok()) {
+    client->SetRes(CmdRes::kErrOther, s.ToString());
+    return;
+  }
+
+  std::vector<std::string> ret;
+  if (types[0] == "list") {
+    storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->LRange(client->Key(), 0, -1, &ret);
+  } else if (types[0] == "set") {
+    storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->SMembers(client->Key(), &ret);
+  } else if (types[0] == "zset") {
+    std::vector<storage::ScoreMember> score_members;
+    storage::Status s =
+        PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->ZRange(client->Key(), 0, -1, &score_members);
+    char buf[32];
+    int64_t score_len = 0;
+
+    for (auto& c : score_members) {
+      ret.emplace_back(c.member);
+    }
+  } else {
+    client->SetRes(CmdRes::kErrOther, "WRONGTYPE Operation against a key holding the wrong kind of value");
+    return;
+  }
+  DEBUG("finish collect ret ");
+
+  std::vector<RedisSortObject> sort_ret(ret.size());
+  for (size_t i = 0; i < ret.size(); ++i) {
+    sort_ret[i].obj = ret[i];
+  }
+
+  if (!dontsort) {
+    for (size_t i = 0; i < ret.size(); ++i) {
+      std::string byval;
+      if (!sortby.empty()) {
+        auto lookup = lookupKeyByPattern(client, sortby, ret[i]);
+        if (!lookup.has_value()) {
+          byval = ret[i];
+        } else {
+          byval = std::move(lookup.value());
+        }
+      } else {
+        byval = ret[i];
+      }
+
+      if (alpha) {
+        sort_ret[i].u = byval;
+      } else {
+        // auto double_byval = pstd::String2d()
+        double double_byval;
+        if (pstd::String2d(byval, &double_byval)) {
+          sort_ret[i].u = double_byval;
+        } else {
+          client->SetRes(CmdRes::kErrOther, "One or more scores can't be converted into double");
+          return;
+        }
+      }
+    }
+
+    std::sort(sort_ret.begin(), sort_ret.end(), [&alpha, &desc](const RedisSortObject& a, const RedisSortObject& b) {
+      if (alpha) {
+        std::string score_a = std::get<std::string>(a.u);
+        std::string score_b = std::get<std::string>(b.u);
+        return !desc ? score_a < score_b : score_a > score_b;
+      } else {
+        double score_a = std::get<double>(a.u);
+        double score_b = std::get<double>(b.u);
+        return !desc ? score_a < score_b : score_a > score_b;
+      }
+    });
+
+    DEBUG("finish sort ret ");
+    size_t sort_size = sort_ret.size();
+
+    count = count >= 0 ? count : sort_size;
+    offset = (offset >= 0 && offset < sort_size) ? offset : sort_size;
+    count = (offset + count < sort_size) ? count : sort_size - offset;
+
+    size_t m_start = offset;
+    size_t m_end = offset + count;
+
+    ret.clear();
+    if(get_patterns.empty()){
+      get_patterns.emplace_back("#");
+    }
+
+    for (; m_start < m_end; m_start++) {
+      for (const std::string& pattern : get_patterns) {
+        std::optional<std::string> val = lookupKeyByPattern(client, pattern, sort_ret[m_start].obj);
+        if (val.has_value()) {
+          ret.push_back(val.value());
+        } else {
+          ret.emplace_back("");
+        }
+      }
+    }
+  }
+
+  client->AppendStringVector(ret);
+
+  DEBUG("finish print ");
+  // if(dontsort && types[0] == "set"){
+  //   dontsort=0;
+  //   alpha=1;
+  //   sortby.clear();
+  // }
+}
+
+std::optional<std::string> SortCmd::lookupKeyByPattern(PClient* client, const std::string& pattern,
+                                                       const std::string& subst) {
+  if (pattern == "#") {
+    return subst;
+  }
+
+  auto match_pos = pattern.find('*');
+  if (match_pos == std::string::npos) {
+    return std::nullopt;
+  }
+
+  std::string field;
+  auto arrow_pos = pattern.find("->", match_pos + 1);
+  if (arrow_pos != std::string::npos && arrow_pos + 2 < pattern.size()) {
+    field = pattern.substr(arrow_pos + 2);
+  }
+
+  std::string key = pattern.substr(0, match_pos + 1);
+  key.replace(match_pos, 1, subst);
+
+  std::string value;
+  storage::Status s;
+  if (!field.empty()) {
+    s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->HGet(key, field, &value);
+  } else {
+    s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->Get(key, &value);
+  }
+
+  if (!s.ok()) {
+    return std::nullopt;
+  }
+
+  return value;
+}
 }  // namespace pikiwidb

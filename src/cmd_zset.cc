@@ -364,7 +364,9 @@ bool ZRangebyscoreCmd::DoInitial(PClient* client) {
 
 void ZRangebyscoreCmd::DoCmd(PClient* client) {
   double min_score = 0, max_score = 0;
-  bool left_close = true, right_close = true, with_scores = false;
+  bool left_close = true;
+  bool right_close = true;
+  bool with_scores = false;
   int64_t offset = 0, count = -1;
   int32_t ret = DoScoreStrRange(client->argv_[2], client->argv_[3], &left_close, &right_close, &min_score, &max_score);
   if (ret == -1) {
