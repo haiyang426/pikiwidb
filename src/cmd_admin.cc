@@ -13,10 +13,9 @@
 #include <vector>
 #include "db.h"
 
-
 #include "braft/raft.h"
-#include "rocksdb/version.h"
 #include "pstd_string.h"
+#include "rocksdb/version.h"
 
 #include "pikiwidb.h"
 #include "praft/praft.h"
@@ -326,7 +325,7 @@ void SortCmd::DoCmd(PClient* client) {
       return;
     }
   }
-  
+
   DEBUG("finish parser ");
 
   std::vector<std::string> types(1);
@@ -414,7 +413,7 @@ void SortCmd::DoCmd(PClient* client) {
     size_t m_end = offset + count;
 
     ret.clear();
-    if(get_patterns.empty()){
+    if (get_patterns.empty()) {
       get_patterns.emplace_back("#");
     }
 
