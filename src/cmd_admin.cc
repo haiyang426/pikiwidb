@@ -290,7 +290,7 @@ void SortCmd::DoCmd(PClient* client) {
 
   std::vector<std::string> get_patterns;
   size_t argc = client->argv_.size();
-  DEBUG("argc: {}", argc);
+
   for (int i = 2; i < argc; ++i) {
     // const auto& arg = pstd::StringToLower(argv[i]);
     int leftargs = argc - i - 1;
@@ -325,8 +325,6 @@ void SortCmd::DoCmd(PClient* client) {
     }
   }
 
-  DEBUG("finish parser ");
-
   std::vector<std::string> types(1);
   rocksdb::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->GetType(client->Key(), true, types);
 
@@ -354,7 +352,6 @@ void SortCmd::DoCmd(PClient* client) {
     client->SetRes(CmdRes::kErrOther, "WRONGTYPE Operation against a key holding the wrong kind of value");
     return;
   }
-  DEBUG("finish collect ret ");
 
   std::vector<RedisSortObject> sort_ret(ret.size());
   for (size_t i = 0; i < ret.size(); ++i) {
@@ -401,7 +398,6 @@ void SortCmd::DoCmd(PClient* client) {
       }
     });
 
-    DEBUG("finish sort ret ");
     size_t sort_size = sort_ret.size();
 
     count = count >= 0 ? count : sort_size;
@@ -428,14 +424,18 @@ void SortCmd::DoCmd(PClient* client) {
     }
   }
 
-  client->AppendStringVector(ret);
-
-  DEBUG("finish print ");
-  // if(dontsort && types[0] == "set"){
-  //   dontsort=0;
-  //   alpha=1;
-  //   sortby.clear();
-  // }
+  if (store_key.empty()) {
+    client->AppendStringVector(ret);
+  } else {
+    // std::vector<std::string> list_values(client->argv_.begin() + 2, client->argv_.end());
+    uint64_t reply_num = 0;
+    storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->RPush(store_key, ret, &reply_num);
+    if (s.ok()) {
+      client->AppendInteger(reply_num);
+    } else {
+      client->SetRes(CmdRes::kSyntaxErr, "rpush cmd error");
+    }
+  }
 }
 
 std::optional<std::string> SortCmd::lookupKeyByPattern(PClient* client, const std::string& pattern,
