@@ -273,7 +273,6 @@ bool SortCmd::DoInitial(PClient* client) {
 }
 
 void SortCmd::DoCmd(PClient* client) {
-  // const auto& argv = client->argv_;
   int desc = 0;
   int alpha = 0;
 
@@ -292,7 +291,6 @@ void SortCmd::DoCmd(PClient* client) {
   size_t argc = client->argv_.size();
 
   for (int i = 2; i < argc; ++i) {
-    // const auto& arg = pstd::StringToLower(argv[i]);
     int leftargs = argc - i - 1;
     if (strcasecmp(client->argv_[i].data(), "asc") == 0) {
       desc = 0;
@@ -375,7 +373,6 @@ void SortCmd::DoCmd(PClient* client) {
       if (alpha) {
         sort_ret[i].u = byval;
       } else {
-        // auto double_byval = pstd::String2d()
         double double_byval;
         if (pstd::String2d(byval, &double_byval)) {
           sort_ret[i].u = double_byval;
@@ -427,7 +424,6 @@ void SortCmd::DoCmd(PClient* client) {
   if (store_key.empty()) {
     client->AppendStringVector(ret);
   } else {
-    // std::vector<std::string> list_values(client->argv_.begin() + 2, client->argv_.end());
     uint64_t reply_num = 0;
     storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->RPush(store_key, ret, &reply_num);
     if (s.ok()) {
