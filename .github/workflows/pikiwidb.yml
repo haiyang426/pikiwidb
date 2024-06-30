@@ -43,7 +43,6 @@ jobs:
         run: |
           cd ../tests
           go mod tidy
-          ulimit -n 4096
           go test -timeout 15m
 
   build_on_ubuntu:
