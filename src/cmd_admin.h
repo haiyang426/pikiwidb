@@ -184,12 +184,23 @@ class SortCmd : public BaseCmd {
  private:
   void DoCmd(PClient* client) override;
 
+  void InitialArgument();
   std::optional<std::string> lookupKeyByPattern(PClient* client, const std::string& pattern, const std::string& subst);
 
   struct RedisSortObject {
     std::string obj;
     std::variant<double, std::string> u;
   };
+
+  int desc = 0;
+  int alpha = 0;
+  size_t offset = 0;
+  size_t count = -1;
+  int dontsort = 0;
+  std::string store_key;
+  std::string sortby;
+  std::vector<std::string> get_patterns;
+  std::vector<std::string> ret;
 };
 
 }  // namespace pikiwidb

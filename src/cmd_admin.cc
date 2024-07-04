@@ -268,28 +268,9 @@ SortCmd::SortCmd(const std::string& name, int16_t arity)
     : BaseCmd(name, arity, kCmdFlagsAdmin | kCmdFlagsWrite, kAclCategoryAdmin) {}
 
 bool SortCmd::DoInitial(PClient* client) {
+  InitialArgument();
   client->SetKey(client->argv_[1]);
-  return true;
-}
-
-void SortCmd::DoCmd(PClient* client) {
-  int desc = 0;
-  int alpha = 0;
-
-  size_t offset = 0;
-  size_t count = -1;
-
-  int dontsort = 0;
-  int vectorlen;
-
-  int getop = 0;
-
-  std::string store_key;
-  std::string sortby;
-
-  std::vector<std::string> get_patterns;
   size_t argc = client->argv_.size();
-
   for (int i = 2; i < argc; ++i) {
     int leftargs = argc - i - 1;
     if (strcasecmp(client->argv_[i].data(), "asc") == 0) {
@@ -301,7 +282,7 @@ void SortCmd::DoCmd(PClient* client) {
     } else if (strcasecmp(client->argv_[i].data(), "limit") == 0 && leftargs >= 2) {
       if (pstd::String2int(client->argv_[i + 1], &offset) == 0 || pstd::String2int(client->argv_[i + 2], &count) == 0) {
         client->SetRes(CmdRes::kSyntaxErr);
-        return;
+        return false;
       }
       i += 2;
     } else if (strcasecmp(client->argv_[i].data(), "store") == 0 && leftargs >= 1) {
@@ -315,42 +296,46 @@ void SortCmd::DoCmd(PClient* client) {
       i++;
     } else if (strcasecmp(client->argv_[i].data(), "get") == 0 && leftargs >= 1) {
       get_patterns.push_back(client->argv_[i + 1]);
-      getop++;
       i++;
     } else {
       client->SetRes(CmdRes::kSyntaxErr);
-      return;
+      return false;
     }
   }
 
-  std::vector<std::string> types(1);
-  rocksdb::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->GetType(client->Key(), true, types);
-
-  if (!s.ok()) {
+  Status s;
+  s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->LRange(client->Key(), 0, -1, &ret);
+  if (s.ok()) {
+    return true;
+  } else if (!s.IsNotFound()) {
     client->SetRes(CmdRes::kErrOther, s.ToString());
-    return;
+    return false;
   }
 
-  std::vector<std::string> ret;
-  if (types[0] == "list") {
-    storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->LRange(client->Key(), 0, -1, &ret);
-  } else if (types[0] == "set") {
-    storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->SMembers(client->Key(), &ret);
-  } else if (types[0] == "zset") {
-    std::vector<storage::ScoreMember> score_members;
-    storage::Status s =
-        PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->ZRange(client->Key(), 0, -1, &score_members);
-    char buf[32];
-    int64_t score_len = 0;
+  s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->SMembers(client->Key(), &ret);
+  if (s.ok()) {
+    return true;
+  } else if (!s.IsNotFound()) {
+    client->SetRes(CmdRes::kErrOther, s.ToString());
+    return false;
+  }
 
+  std::vector<storage::ScoreMember> score_members;
+  s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->ZRange(client->Key(), 0, -1, &score_members);
+  if (s.ok()) {
     for (auto& c : score_members) {
       ret.emplace_back(c.member);
     }
-  } else {
-    client->SetRes(CmdRes::kErrOther, "WRONGTYPE Operation against a key holding the wrong kind of value");
-    return;
+    return true;
+  } else if (!s.IsNotFound()) {
+    client->SetRes(CmdRes::kErrOther, s.ToString());
+    return false;
   }
+  client->SetRes(CmdRes::kErrOther, "Unknown Type");
+  return false;
+}
 
+void SortCmd::DoCmd(PClient* client) {
   std::vector<RedisSortObject> sort_ret(ret.size());
   for (size_t i = 0; i < ret.size(); ++i) {
     sort_ret[i].obj = ret[i];
@@ -383,15 +368,15 @@ void SortCmd::DoCmd(PClient* client) {
       }
     }
 
-    std::sort(sort_ret.begin(), sort_ret.end(), [&alpha, &desc](const RedisSortObject& a, const RedisSortObject& b) {
-      if (alpha) {
+    std::sort(sort_ret.begin(), sort_ret.end(), [this](const RedisSortObject& a, const RedisSortObject& b) {
+      if (this->alpha) {
         std::string score_a = std::get<std::string>(a.u);
         std::string score_b = std::get<std::string>(b.u);
-        return !desc ? score_a < score_b : score_a > score_b;
+        return !this->desc ? score_a < score_b : score_a > score_b;
       } else {
         double score_a = std::get<double>(a.u);
         double score_b = std::get<double>(b.u);
-        return !desc ? score_a < score_b : score_a > score_b;
+        return !this->desc ? score_a < score_b : score_a > score_b;
       }
     });
 
@@ -429,7 +414,7 @@ void SortCmd::DoCmd(PClient* client) {
     if (s.ok()) {
       client->AppendInteger(reply_num);
     } else {
-      client->SetRes(CmdRes::kSyntaxErr, "rpush cmd error");
+      client->SetRes(CmdRes::kErrOther, s.ToString());
     }
   }
 }
@@ -467,5 +452,17 @@ std::optional<std::string> SortCmd::lookupKeyByPattern(PClient* client, const st
   }
 
   return value;
+}
+
+void SortCmd::InitialArgument(){
+  desc = 0;
+  alpha = 0;
+  offset = 0;
+  count = -1;
+  dontsort = 0;
+  store_key.clear();
+  sortby.clear();
+  get_patterns.clear();
+  ret.clear();
 }
 }  // namespace pikiwidb
