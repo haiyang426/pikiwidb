@@ -454,7 +454,7 @@ std::optional<std::string> SortCmd::lookupKeyByPattern(PClient* client, const st
   return value;
 }
 
-void SortCmd::InitialArgument(){
+void SortCmd::InitialArgument() {
   desc = 0;
   alpha = 0;
   offset = 0;
