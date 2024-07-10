@@ -192,15 +192,15 @@ class SortCmd : public BaseCmd {
     std::variant<double, std::string> u;
   };
 
-  int desc = 0;
-  int alpha = 0;
-  size_t offset = 0;
-  size_t count = -1;
-  int dontsort = 0;
-  std::string store_key;
-  std::string sortby;
-  std::vector<std::string> get_patterns;
-  std::vector<std::string> ret;
+  int desc_ = 0;
+  int alpha_ = 0;
+  size_t offset_ = 0;
+  size_t count_ = -1;
+  int dontsort_ = 0;
+  std::string store_key_;
+  std::string sortby_;
+  std::vector<std::string> get_patterns_;
+  std::vector<std::string> ret_;
 };
 
 }  // namespace pikiwidb

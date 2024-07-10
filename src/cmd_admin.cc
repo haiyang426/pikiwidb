@@ -274,28 +274,28 @@ bool SortCmd::DoInitial(PClient* client) {
   for (int i = 2; i < argc; ++i) {
     int leftargs = argc - i - 1;
     if (strcasecmp(client->argv_[i].data(), "asc") == 0) {
-      desc = 0;
+      desc_ = 0;
     } else if (strcasecmp(client->argv_[i].data(), "desc") == 0) {
-      desc = 1;
+      desc_ = 1;
     } else if (strcasecmp(client->argv_[i].data(), "alpha") == 0) {
-      alpha = 1;
+      alpha_ = 1;
     } else if (strcasecmp(client->argv_[i].data(), "limit") == 0 && leftargs >= 2) {
-      if (pstd::String2int(client->argv_[i + 1], &offset) == 0 || pstd::String2int(client->argv_[i + 2], &count) == 0) {
+      if (pstd::String2int(client->argv_[i + 1], &offset_) == 0 || pstd::String2int(client->argv_[i + 2], &count_) == 0) {
         client->SetRes(CmdRes::kSyntaxErr);
         return false;
       }
       i += 2;
     } else if (strcasecmp(client->argv_[i].data(), "store") == 0 && leftargs >= 1) {
-      store_key = client->argv_[i + 1];
+      store_key_ = client->argv_[i + 1];
       i++;
     } else if (strcasecmp(client->argv_[i].data(), "by") == 0 && leftargs >= 1) {
-      sortby = client->argv_[i + 1];
-      if (sortby.find('*') == std::string::npos) {
-        dontsort = 1;
+      sortby_ = client->argv_[i + 1];
+      if (sortby_.find('*') == std::string::npos) {
+        dontsort_ = 1;
       }
       i++;
     } else if (strcasecmp(client->argv_[i].data(), "get") == 0 && leftargs >= 1) {
-      get_patterns.push_back(client->argv_[i + 1]);
+      get_patterns_.push_back(client->argv_[i + 1]);
       i++;
     } else {
       client->SetRes(CmdRes::kSyntaxErr);
@@ -304,7 +304,7 @@ bool SortCmd::DoInitial(PClient* client) {
   }
 
   Status s;
-  s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->LRange(client->Key(), 0, -1, &ret);
+  s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->LRange(client->Key(), 0, -1, &ret_);
   if (s.ok()) {
     return true;
   } else if (!s.IsNotFound()) {
@@ -312,7 +312,7 @@ bool SortCmd::DoInitial(PClient* client) {
     return false;
   }
 
-  s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->SMembers(client->Key(), &ret);
+  s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->SMembers(client->Key(), &ret_);
   if (s.ok()) {
     return true;
   } else if (!s.IsNotFound()) {
@@ -324,7 +324,7 @@ bool SortCmd::DoInitial(PClient* client) {
   s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->ZRange(client->Key(), 0, -1, &score_members);
   if (s.ok()) {
     for (auto& c : score_members) {
-      ret.emplace_back(c.member);
+      ret_.emplace_back(c.member);
     }
     return true;
   } else if (!s.IsNotFound()) {
@@ -336,26 +336,26 @@ bool SortCmd::DoInitial(PClient* client) {
 }
 
 void SortCmd::DoCmd(PClient* client) {
-  std::vector<RedisSortObject> sort_ret(ret.size());
-  for (size_t i = 0; i < ret.size(); ++i) {
-    sort_ret[i].obj = ret[i];
+  std::vector<RedisSortObject> sort_ret(ret_.size());
+  for (size_t i = 0; i < ret_.size(); ++i) {
+    sort_ret[i].obj = ret_[i];
   }
 
-  if (!dontsort) {
-    for (size_t i = 0; i < ret.size(); ++i) {
+  if (!dontsort_) {
+    for (size_t i = 0; i < ret_.size(); ++i) {
       std::string byval;
-      if (!sortby.empty()) {
-        auto lookup = lookupKeyByPattern(client, sortby, ret[i]);
+      if (!sortby_.empty()) {
+        auto lookup = lookupKeyByPattern(client, sortby_, ret_[i]);
         if (!lookup.has_value()) {
-          byval = ret[i];
+          byval = ret_[i];
         } else {
           byval = std::move(lookup.value());
         }
       } else {
-        byval = ret[i];
+        byval = ret_[i];
       }
 
-      if (alpha) {
+      if (alpha_) {
         sort_ret[i].u = byval;
       } else {
         double double_byval;
@@ -369,48 +369,48 @@ void SortCmd::DoCmd(PClient* client) {
     }
 
     std::sort(sort_ret.begin(), sort_ret.end(), [this](const RedisSortObject& a, const RedisSortObject& b) {
-      if (this->alpha) {
+      if (this->alpha_) {
         std::string score_a = std::get<std::string>(a.u);
         std::string score_b = std::get<std::string>(b.u);
-        return !this->desc ? score_a < score_b : score_a > score_b;
+        return !this->desc_ ? score_a < score_b : score_a > score_b;
       } else {
         double score_a = std::get<double>(a.u);
         double score_b = std::get<double>(b.u);
-        return !this->desc ? score_a < score_b : score_a > score_b;
+        return !this->desc_ ? score_a < score_b : score_a > score_b;
       }
     });
 
     size_t sort_size = sort_ret.size();
 
-    count = count >= 0 ? count : sort_size;
-    offset = (offset >= 0 && offset < sort_size) ? offset : sort_size;
-    count = (offset + count < sort_size) ? count : sort_size - offset;
+    count_ = count_ >= 0 ? count_ : sort_size;
+    offset_ = (offset_ >= 0 && offset_ < sort_size) ? offset_ : sort_size;
+    count_ = (offset_ + count_ < sort_size) ? count_ : sort_size - offset_;
 
-    size_t m_start = offset;
-    size_t m_end = offset + count;
+    size_t m_start = offset_;
+    size_t m_end = offset_ + count_;
 
-    ret.clear();
-    if (get_patterns.empty()) {
-      get_patterns.emplace_back("#");
+    ret_.clear();
+    if (get_patterns_.empty()) {
+      get_patterns_.emplace_back("#");
     }
 
     for (; m_start < m_end; m_start++) {
-      for (const std::string& pattern : get_patterns) {
+      for (const std::string& pattern : get_patterns_) {
         std::optional<std::string> val = lookupKeyByPattern(client, pattern, sort_ret[m_start].obj);
         if (val.has_value()) {
-          ret.push_back(val.value());
+          ret_.push_back(val.value());
         } else {
-          ret.emplace_back("");
+          ret_.emplace_back("");
         }
       }
     }
   }
 
-  if (store_key.empty()) {
-    client->AppendStringVector(ret);
+  if (store_key_.empty()) {
+    client->AppendStringVector(ret_);
   } else {
     uint64_t reply_num = 0;
-    storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->RPush(store_key, ret, &reply_num);
+    storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->RPush(store_key_, ret_, &reply_num);
     if (s.ok()) {
       client->AppendInteger(reply_num);
     } else {
@@ -455,14 +455,14 @@ std::optional<std::string> SortCmd::lookupKeyByPattern(PClient* client, const st
 }
 
 void SortCmd::InitialArgument() {
-  desc = 0;
-  alpha = 0;
-  offset = 0;
-  count = -1;
-  dontsort = 0;
-  store_key.clear();
-  sortby.clear();
-  get_patterns.clear();
-  ret.clear();
+  desc_ = 0;
+  alpha_ = 0;
+  offset_ = 0;
+  count_ = -1;
+  dontsort_ = 0;
+  store_key_.clear();
+  sortby_.clear();
+  get_patterns_.clear();
+  ret_.clear();
 }
 }  // namespace pikiwidb
