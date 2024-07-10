@@ -280,7 +280,8 @@ bool SortCmd::DoInitial(PClient* client) {
     } else if (strcasecmp(client->argv_[i].data(), "alpha") == 0) {
       alpha_ = 1;
     } else if (strcasecmp(client->argv_[i].data(), "limit") == 0 && leftargs >= 2) {
-      if (pstd::String2int(client->argv_[i + 1], &offset_) == 0 || pstd::String2int(client->argv_[i + 2], &count_) == 0) {
+      if (pstd::String2int(client->argv_[i + 1], &offset_) == 0 ||
+          pstd::String2int(client->argv_[i + 2], &count_) == 0) {
         client->SetRes(CmdRes::kSyntaxErr);
         return false;
       }
